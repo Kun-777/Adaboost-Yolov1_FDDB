@@ -4,8 +4,8 @@ import random
 from tqdm import tqdm
 
 class MulticlassClassifier:
-    def __init__(self, num_classes, imsize):
-        self.num_classes = num_classes
+    def __init__(self, classes, imsize):
+        self.classes = classes
         # randomly sample 20 locations to extract haar features
         possible_coordinates = [(x, y) for x in range(1,imsize[0]+1) for y in range(1,imsize[1]+1)]
         self.sample = random.sample(possible_coordinates, 20)
@@ -14,7 +14,7 @@ class MulticlassClassifier:
         # initialize a list of one-vs-all classifiers
         self.ova_clfs = []
         X = haarFeatures(X, self.sample)
-        for i in range(self.num_classes):
+        for i in self.classes:
             y = (labels==i).astype(int)
             m = np.count_nonzero(y==0)
             l = len(y) - m
@@ -114,10 +114,13 @@ def adaboost_test(train_set, test_set, T):
 # returns an array of features of shape (num_images, num_features)
 def haarFeatures(im, sample):
     # precompute integral image
-    im = im.reshape(-1,3,32,32).swapaxes(1,2).swapaxes(2,3)
     grayim = []
-    for i in range(im.shape[0]):
-        grayim.append(cv2.cvtColor(im[i],cv2.COLOR_BGR2GRAY))
+    if len(im.shape) == 4:
+        # rgb img
+        for i in range(im.shape[0]):
+            grayim.append(cv2.cvtColor(im[i],cv2.COLOR_BGR2GRAY))
+    else:
+        grayim = im
     iim = integralIm(np.array(grayim))
     # get exhausive set of haar features
     haar_features = []

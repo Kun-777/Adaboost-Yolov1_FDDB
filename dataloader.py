@@ -11,13 +11,15 @@ def dataset_for_classification(train_raw, test_raw, num_samples_per_img):
     for i, raw_img in enumerate(train_raw['img']):
         if len(raw_img.shape) == 3:
             raw_img = cv2.cvtColor(raw_img,cv2.COLOR_BGR2GRAY)
-        possible_coordinates = [(y, x) for y in range(raw_img.shape[0]-24) for x in range(raw_img.shape[1]-24)]
+
+        # TODO: Redo this
+        possible_coordinates = [(y, x) for y in range(raw_img.shape[0]-48) for x in range(raw_img.shape[1]-48)]
         sample = random.sample(possible_coordinates, num_samples_per_img)
         for y, x in sample:
             # Let x, y be the top left corner of the image patch
-            patch_size = random.randint(24, min(raw_img.shape[0]-y, raw_img.shape[1]-x))
+            patch_size = random.randint(48, min(raw_img.shape[0]-y, raw_img.shape[1]-x))
             img_patch = raw_img[y:y+patch_size, x:x+patch_size]
-            # img_patch = cv2.resize(img_patch, (24,24))
+            img_patch = cv2.resize(img_patch, (24,24))
             # check if patch contains face, we consider it contains a face if it covers 75% of the bounding box of a face
             label = 0
             for max_x, min_x, max_y, min_y in train_raw['faces'][i]:
@@ -27,6 +29,25 @@ def dataset_for_classification(train_raw, test_raw, num_samples_per_img):
                     break
             train_data['img'].append(img_patch)
             train_data['labels'].append(label)
+    for i, raw_img in enumerate(test_raw['img']):
+        if len(raw_img.shape) == 3:
+            raw_img = cv2.cvtColor(raw_img,cv2.COLOR_BGR2GRAY)
+        possible_coordinates = [(y, x) for y in range(raw_img.shape[0]-48) for x in range(raw_img.shape[1]-48)]
+        sample = random.sample(possible_coordinates, num_samples_per_img)
+        for y, x in sample:
+            # Let x, y be the top left corner of the image patch
+            patch_size = random.randint(48, min(raw_img.shape[0]-y, raw_img.shape[1]-x))
+            img_patch = raw_img[y:y+patch_size, x:x+patch_size]
+            img_patch = cv2.resize(img_patch, (24,24))
+            # check if patch contains face, we consider it contains a face if it covers 75% of the bounding box of a face
+            label = 0
+            for max_x, min_x, max_y, min_y in train_raw['faces'][i]:
+                if y < min_y + (max_y - min_y) / 8 and y + patch_size > max_y - (max_y - min_y) / 8 \
+                        and x < min_x + (max_x - min_x) / 8 and x + patch_size > max_x - (max_x - min_x) / 8:
+                    label = 1
+                    break
+            test_data['img'].append(img_patch)
+            test_data['labels'].append(label)
     return train_data, test_data
 
 
