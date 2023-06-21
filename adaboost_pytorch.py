@@ -23,7 +23,7 @@ class MulticlassClassifier:
             w = (1-y) / (2*m) + y / (2*l)
             # print("Adaboost for class", i)
             # one-vs-all classifier
-            ova_clf = AdaboostClassifier(T)
+            ova_clf = OneVAllClassifier(T)
             ova_clf.fit(X, y, w)
             self.ova_clfs.append(ova_clf)
     
@@ -44,7 +44,7 @@ class MulticlassClassifier:
         singleclass_accs = []
         X = haarFeatures(X, self.sample)
         for i, ova_clf in enumerate(self.ova_clfs):
-            y_class = (y==i).astype(int)
+            y_class = (y==self.classes[i]).astype(int)
             singleclass_accs.append(ova_clf.evaluate(X, y_class))
         return multiclass_acc, singleclass_accs
 
@@ -94,7 +94,7 @@ def adaboost_test(train_set, test_set, T):
         w = (1-y) / (2*m) + y / (2*l)
         print("Adaboost for class", i)
         # one-vs-all classifier
-        ova_clf = AdaboostClassifier(T)
+        ova_clf = OneVAllClassifier(T)
         if i == 0:
             # keep track of train and test errors for validation
             train_errors, test_errors = ova_clf.fit(X_train, y, w, X_test, y_test)
@@ -162,13 +162,12 @@ def haarFeatures(im, sample):
                             )
     return np.array(haar_features).swapaxes(0,1)
 
-# im is n x 32 x 32 x 3
+# im is n x h x w x 3
 def integralIm(im):
     iim = np.zeros([im.shape[0], im.shape[1]+1, im.shape[2]+1])
     for x in range(im.shape[1]):
         for y in range(im.shape[2]):
             iim[:,x+1,y+1] = iim[:,x,y+1] + iim[:,x+1,y] - iim[:,x,y] + im[:,x,y]
-    # iim = np.delete(np.delete(iim, 0, 1), 0, 2)
     return iim
 
 class WeakClassifier:
@@ -220,8 +219,11 @@ class WeakClassifier:
             return (X[:, self.best_feature] < self.best_threshold).astype(int)
         else:
             return (X[:, self.best_feature] >= self.best_threshold).astype(int)
-        
-class AdaboostClassifier:
+
+# One-versus-all adaboost classifier, used only in Multiclass classifier
+# Unlike AdaboostClassifier, it does not store how haar features are extracted
+# It assumes X are haar features
+class OneVAllClassifier:
     def __init__(self, T):
         self.T = T
         self.weak_clfs = []
@@ -263,5 +265,54 @@ class AdaboostClassifier:
     
     def evaluate(self, X, y):
         y_pred, _ = self.predict(X)
-        return (y == y_pred).sum(0)/len(y)
+        acc = (y == y_pred).sum(0)/len(y)
+        precision = ((y == 1) & (y_pred == 1)).sum(0) / (y_pred == 1).sum(0)
+        recall = (((y == 1) & (y_pred == 1)).sum(0)) / (y == 1).sum(0)
+        return acc, precision, recall
 
+
+class AdaboostClassifier:
+    def __init__(self, imsize, T):
+        # randomly sample 20 locations to extract haar features
+        possible_coordinates = [(x, y) for x in range(1,imsize[0]+1) for y in range(1,imsize[1]+1)]
+        self.sample = random.sample(possible_coordinates, 20)
+        self.T = T
+        self.weak_clfs = []
+
+    def fit(self, X, y):
+        X = haarFeatures(X, self.sample)
+        m = (y==0).sum(0)
+        l = len(y) - m
+        # initialize weights
+        w = (1-y) / (2*m) + y / (2*l)
+        X, y, w = torch.from_numpy(X), torch.from_numpy(y), torch.from_numpy(w)
+        if torch.cuda.is_available():
+            X, y, w = X.to('cuda'), y.to('cuda'), w.to('cuda')
+        for _ in tqdm(range(self.T)):
+            # normalize weight
+            w = w/(w.sum(0))
+            # Choose the best feature to split the data
+            weak_clf = WeakClassifier()
+            error, e = weak_clf.fit(X, y, w)
+            w = w * ((error/(1-error)) ** (1-e))
+            alpha = np.log(1/(error/(1-error)))
+            self.weak_clfs.append((weak_clf, alpha))
+    
+    def predict(self, X):
+        X = haarFeatures(X, self.sample)
+        sum_ah = np.zeros(X.shape[0])
+        sum_alpha = 0
+        # self.weak_clfs is a list of tuples (WeakClassifier, alpha)
+        for weak_clf, alpha in self.weak_clfs:
+            y_pred = weak_clf.predict(X)
+            sum_ah += y_pred * alpha
+            sum_alpha += alpha
+        score = sum_ah/sum_alpha
+        return (sum_ah >= 0.5 * sum_alpha).astype(int), score
+
+    def evaluate(self, X, y):
+        y_pred, _ = self.predict(X)
+        acc = (y == y_pred).sum(0)/len(y)
+        precision = ((y == 1) & (y_pred == 1)).sum(0) / (y_pred == 1).sum(0)
+        recall = (((y == 1) & (y_pred == 1)).sum(0)) / (y == 1).sum(0)
+        return acc, precision, recall

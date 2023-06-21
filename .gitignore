@@ -1,0 +1,8 @@
+__pycache__
+model/
+originalPics/
+a5.zip
+FDDB-folds/
+.DS_Store
+2023_CS376_Assignment_5-1.zip
+lightning_logs/
